@@ -1,0 +1,23 @@
+﻿# Secrets & local configuration
+.env
+
+# Data stays local (transcript copyright, team receives exports via Drive)
+data/
+exports/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+
+# OS clutter
+.DS_Store
+Thumbs.db
