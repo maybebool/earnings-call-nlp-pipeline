@@ -32,6 +32,9 @@ MANAGEMENT = {
 }
 
 QA_HEADER = "Analyst Q&A (CEO and CFO)"
+# End-of-content markers: the legal boilerplate and signature pages that
+# follow the IR host's closing. Everything from here on is dropped.
+END_RE = re.compile(r"^(Cautionary [Ss]tatement|SIGNATURES$)")
 
 # An analyst speaker line looks like "First Last, Institution" and is short.
 ANALYST_RE = re.compile(
@@ -92,8 +95,10 @@ def classify(leaf: str):
     """Return ('speaker', name, org, role) or ('qa_header',) or ('skip',) or ('text',)."""
     if leaf == QA_HEADER:
         return ("qa_header",)
-    if PAGE_NUMBER_RE.match(leaf) or SLIDE_HEADER_RE.match(leaf):
+    if PAGE_NUMBER_RE.match(leaf):
         return ("skip",)
+    if SLIDE_HEADER_RE.match(leaf):
+        return ("slide",)
     if leaf in MANAGEMENT:
         return ("speaker", leaf, None, MANAGEMENT[leaf])
     if leaf.lower() == "operator":
@@ -126,8 +131,22 @@ def parse(leaves: list[str]) -> list[dict]:
             )
         current = None
 
+    content_started = False
+
     for leaf in leaves:
         kind = classify(leaf)
+        if END_RE.match(leaf):
+            break
+        if kind[0] == "slide":
+            if not content_started:
+                # First slide header = end of the cover page. Everything
+                # collected so far is title-page noise; keep the current
+                # speaker but drop their accumulated cover text.
+                content_started = True
+                utterances.clear()
+                if current is not None:
+                    current["parts"] = []
+            continue
         if kind[0] == "qa_header":
             flush()
             section = "qa"
