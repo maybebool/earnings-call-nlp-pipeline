@@ -120,6 +120,15 @@ def _validate() -> None:
         if cik_from_url(f.source_url) != FIRM["cik"]:
             raise ValueError(f"{f.quarter}: CIK in URL differs from FIRM")
 
+def select_filings(quarter: str | None) -> list[Filing]:
+    """All filings, or the one matching '2023-Q1' or '1Q23'."""
+    if quarter is None:
+        return FILINGS
+    iso = quarter if "-Q" in quarter else label_to_iso(quarter)
+    selected = [f for f in FILINGS if f.quarter == iso]
+    if not selected:
+        raise SystemExit(f"quarter {quarter!r} is not in filings_config")
+    return selected
 
 _validate()
 
