@@ -1,33 +1,23 @@
-﻿"""Stage 1: fetch one filing from EDGAR and record it in `filings`.
+﻿"""Stage 1: fetch the configured filings from EDGAR and record them in `filings`.
 
-Smoke test scope: a single known document (UBS 2Q26 transcript).
-Later this grows into discovery via the EDGAR submissions API.
+Idempotent: raw files already in data/raw are reused unless --refetch is
+given, and existing `filings` rows are never overwritten. A checksum that
+differs from the stored one is reported, not silently fixed.
 """
+import argparse
 import hashlib
 import os
-from pathlib import Path
+import time
 
 import requests
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+from filings_config import FILINGS, FIRM, Filing, label_to_iso
+
 load_dotenv()
 
-FIRM = {
-    "ticker": "UBS",
-    "name": "UBS Group AG",
-    "cik": "1114446",
-    "peer_group": "EU universal bank",
-}
-
-DOC = {
-    "quarter": "2Q26",
-    "doc_type": "transcript",
-    "source_url": "https://www.sec.gov/Archives/edgar/data/1114446/000161052026000089/investorpresotext2026.htm",
-    "accession_number": "0001610520-26-000089",
-}
-
-DATA_DIR = Path("data/raw")
+REQUEST_PAUSE_S = 0.5  # stay well below the SEC fair-access limit
 
 
 def get_engine():
@@ -46,28 +36,47 @@ def fetch(url: str) -> bytes:
     return resp.content
 
 
-def main() -> None:
-    raw = fetch(DOC["source_url"])
-    checksum = hashlib.sha256(raw).hexdigest()
+def load_raw(filing: Filing, refetch: bool) -> tuple[bytes, str]:
+    """Return the document bytes and where they came from."""
+    if filing.raw_path.exists() and not refetch:
+        return filing.raw_path.read_bytes(), "disk"
+    raw = fetch(filing.source_url)
+    filing.raw_path.parent.mkdir(parents=True, exist_ok=True)
+    filing.raw_path.write_bytes(raw)
+    time.sleep(REQUEST_PAUSE_S)
+    return raw, "edgar"
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = DATA_DIR / f"{FIRM['ticker']}_{DOC['quarter']}_{DOC['doc_type']}.htm"
-    out_path.write_bytes(raw)
 
-    engine = get_engine()
-    with engine.begin() as conn:
-        firm_id = conn.execute(
-            text(
-                """
-                insert into firms (ticker, name, cik, peer_group)
-                values (:ticker, :name, :cik, :peer_group)
-                on conflict (ticker) do update set name = excluded.name
-                returning id
-                """
-            ),
-            FIRM,
-        ).scalar_one()
+def upsert_firm(conn) -> int:
+    return conn.execute(
+        text(
+            """
+            insert into firms (ticker, name, cik, peer_group)
+            values (:ticker, :name, :cik, :peer_group)
+            on conflict (ticker) do update
+                set name = excluded.name,
+                    cik = excluded.cik,
+                    peer_group = excluded.peer_group
+            returning id
+            """
+        ),
+        FIRM,
+    ).scalar_one()
 
+
+def record_filing(conn, firm_id: int, filing: Filing, checksum: str) -> str:
+    """Insert the filing row if missing and return a short status."""
+    stored = conn.execute(
+        text(
+            """
+            select checksum from filings
+            where firm_id = :firm_id and quarter = :quarter and doc_type = :doc_type
+            """
+        ),
+        {"firm_id": firm_id, "quarter": filing.quarter, "doc_type": filing.doc_type},
+    ).scalar_one_or_none()
+
+    if stored is None:
         conn.execute(
             text(
                 """
@@ -75,13 +84,55 @@ def main() -> None:
                     (firm_id, quarter, doc_type, source_url, accession_number, checksum)
                 values
                     (:firm_id, :quarter, :doc_type, :source_url, :accession_number, :checksum)
-                on conflict (firm_id, quarter, doc_type) do nothing
                 """
             ),
-            {**DOC, "firm_id": firm_id, "checksum": checksum},
+            {
+                "firm_id": firm_id,
+                "quarter": filing.quarter,
+                "doc_type": filing.doc_type,
+                "source_url": filing.source_url,
+                "accession_number": filing.accession_number,
+                "checksum": checksum,
+            },
         )
+        return "inserted"
+    if stored == checksum:
+        return "unchanged"
+    return "CHECKSUM MISMATCH, row not updated"
 
-    print(f"saved {out_path} ({len(raw):,} bytes, sha256 {checksum[:12]}...)")
+
+def select_filings(quarter: str | None) -> list[Filing]:
+    if quarter is None:
+        return FILINGS
+    iso = quarter if "-Q" in quarter else label_to_iso(quarter)
+    selected = [f for f in FILINGS if f.quarter == iso]
+    if not selected:
+        raise SystemExit(f"quarter {quarter!r} is not in filings_config")
+    return selected
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--quarter", help="limit to one quarter, e.g. 2023-Q1 or 1Q23")
+    parser.add_argument(
+        "--refetch", action="store_true", help="download again even if the raw file exists"
+    )
+    args = parser.parse_args()
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        firm_id = upsert_firm(conn)
+
+    for filing in select_filings(args.quarter):
+        raw, origin = load_raw(filing, args.refetch)
+        checksum = hashlib.sha256(raw).hexdigest()
+        with engine.begin() as conn:
+            status = record_filing(conn, firm_id, filing, checksum)
+        label_hits = raw.count(filing.label.encode())
+        print(
+            f"{filing.quarter} ({filing.label})  {origin:<5}  {len(raw):>9,} bytes  "
+            f"sha256 {checksum[:12]}  label hits {label_hits:>3}  {status}"
+        )
 
 
 if __name__ == "__main__":
