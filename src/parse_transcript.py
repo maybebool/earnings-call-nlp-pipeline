@@ -72,7 +72,8 @@ NAME_RE = re.compile(rf"^[{_UPPER}][\w.\u2019'-]*(?: [{_UPPER}][\w.\u2019'-]*){{
 ORG_RE = re.compile(rf"^[{_UPPER}][\w&.\u2019' -]*[\w)]$")
 # Short capitalized lines that look like a speaker but were not recognized.
 SUSPECT_RE = re.compile(rf"^[{_UPPER}][\w.\u2019'-]*(?:[ ,;]+[{_UPPER}&][\w.\u2019'&-]*){{1,5}}$")
-BRACKET_RE = re.compile(r"\[[^\]]{1,60}\]")
+# A hyphenated word split over two line blocks comes back as 'pre -tax'.
+BROKEN_HYPHEN_RE = re.compile(r"(?<=[a-z]) -(?=[a-z])")
 
 SPEAKER_MAX_LEN = 60
 PAGE_STEP_MAX = 3  # a page number may skip up to two unnumbered pages
@@ -256,7 +257,7 @@ def parse(blocks: list[str]) -> tuple[list[dict], dict]:
                     "speaker_org": current["org"],
                     "speaker_role": current["role"],
                     "section": current["section"],
-                    "body": " ".join(current["parts"]),
+                    "body": BROKEN_HYPHEN_RE.sub("-", " ".join(current["parts"])),
                 }
             )
         current = None
