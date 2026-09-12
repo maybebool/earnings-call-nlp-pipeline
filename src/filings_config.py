@@ -1,5 +1,8 @@
 ﻿"""Target filings for the multi-quarter build: UBS 1Q23 to 4Q24.
 
+Two documents per quarter: the earnings call transcript and the UBS Group AG
+quarterly report (both filed as Form 6-K).
+
 Quarters are ISO strings (YYYY-Qn) everywhere: database, raw file names and
 exports, so they sort chronologically. The UBS label form (1Q23) is derived
 for display only. `quarter` is the reporting period, not the call date
@@ -74,7 +77,7 @@ class Filing:
         return RAW_DIR / f"{FIRM['ticker']}_{self.quarter}_{self.doc_type}.htm"
 
 
-FILINGS = [
+TRANSCRIPTS = [
     Filing(
         "2023-Q1", date(2023, 4, 25),
         "https://www.sec.gov/Archives/edgar/data/1610520/000161052023000084/investorpreso20230426.htm",
@@ -109,30 +112,93 @@ FILINGS = [
     ),
 ]
 
+# UBS Group AG quarterly reports. Their key figures table is the source for
+# the metrics. Not the UBS AG reports (CIK 1114446) and not the Pillar 3,
+# capital instruments or standalone filings of the same day.
+REPORTS = [
+    Filing(
+        "2023-Q1", date(2023, 4, 25),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052023000078/EDGARq23ubsgroupag.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2023-Q2", date(2023, 8, 31),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052023000128/ubs-20230630.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2023-Q3", date(2023, 11, 7),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052023000166/edgar3q23ubsgroup.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2023-Q4", date(2024, 2, 6),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052024000018/edgarq23ubsgroupag.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2024-Q1", date(2024, 5, 7),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052024000098/edgar1q24ubsgroup.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2024-Q2", date(2024, 8, 14),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052024000141/ubs-20240630.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2024-Q3", date(2024, 10, 30),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052024000156/edgar3q24ubsgroup.htm",
+        doc_type="report",
+    ),
+    Filing(
+        "2024-Q4", date(2025, 2, 4),
+        "https://www.sec.gov/Archives/edgar/data/1610520/000161052025000001/edgar4q24ubsgroup.htm",
+        doc_type="report",
+    ),
+]
+
+FILINGS = TRANSCRIPTS + REPORTS
+DOC_TYPES = ("transcript", "report")
+
 
 def _validate() -> None:
-    quarters = [f.quarter for f in FILINGS]
-    if quarters != sorted(set(quarters)):
-        raise ValueError("FILINGS must be unique and in chronological order")
+    for group, name in ((TRANSCRIPTS, "TRANSCRIPTS"), (REPORTS, "REPORTS")):
+        quarters = [f.quarter for f in group]
+        if quarters != sorted(set(quarters)):
+            raise ValueError(f"{name} must be unique and in chronological order")
+    keys = [(f.quarter, f.doc_type) for f in FILINGS]
+    if len(keys) != len(set(keys)):
+        raise ValueError("quarter and doc_type must be unique across FILINGS")
+    urls = [f.source_url for f in FILINGS]
+    if len(urls) != len(set(urls)):
+        raise ValueError("the same source_url is used twice")
     for f in FILINGS:
         iso_to_label(f.quarter)
         accession_from_url(f.source_url)
         if cik_from_url(f.source_url) != FIRM["cik"]:
             raise ValueError(f"{f.quarter}: CIK in URL differs from FIRM")
 
-def select_filings(quarter: str | None) -> list[Filing]:
-    """All filings, or the one matching '2023-Q1' or '1Q23'."""
-    if quarter is None:
-        return FILINGS
-    iso = quarter if "-Q" in quarter else label_to_iso(quarter)
-    selected = [f for f in FILINGS if f.quarter == iso]
+
+def select_filings(quarter: str | None,
+                   doc_type: str | None = "transcript") -> list[Filing]:
+    """Filings for one quarter and/or one doc_type; None means no filter."""
+    selected = FILINGS
+    if doc_type is not None:
+        if doc_type not in DOC_TYPES:
+            raise SystemExit(f"unknown doc_type {doc_type!r}, expected one of {DOC_TYPES}")
+        selected = [f for f in selected if f.doc_type == doc_type]
+    if quarter is not None:
+        iso = quarter if "-Q" in quarter else label_to_iso(quarter)
+        selected = [f for f in selected if f.quarter == iso]
     if not selected:
-        raise SystemExit(f"quarter {quarter!r} is not in filings_config")
+        raise SystemExit(f"no filing for quarter={quarter!r}, doc_type={doc_type!r}")
     return selected
+
 
 _validate()
 
 
 if __name__ == "__main__":
     for f in FILINGS:
-        print(f"{f.quarter}  {f.label:<5} {f.call_date}  {f.accession_number}  {f.raw_path}")
+        print(f"{f.quarter}  {f.label:<5} {f.doc_type:<10} {f.accession_number}  {f.raw_path}")

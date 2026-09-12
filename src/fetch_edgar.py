@@ -13,7 +13,7 @@ import requests
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FILINGS, FIRM, Filing, label_to_iso
+from filings_config import FIRM, Filing, select_filings
 
 load_dotenv()
 
@@ -101,19 +101,11 @@ def record_filing(conn, firm_id: int, filing: Filing, checksum: str) -> str:
     return "CHECKSUM MISMATCH, row not updated"
 
 
-def select_filings(quarter: str | None) -> list[Filing]:
-    if quarter is None:
-        return FILINGS
-    iso = quarter if "-Q" in quarter else label_to_iso(quarter)
-    selected = [f for f in FILINGS if f.quarter == iso]
-    if not selected:
-        raise SystemExit(f"quarter {quarter!r} is not in filings_config")
-    return selected
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quarter", help="limit to one quarter, e.g. 2023-Q1 or 1Q23")
+    parser.add_argument("--doc-type", default="transcript",
+                        help="transcript (default) or report")
     parser.add_argument(
         "--refetch", action="store_true", help="download again even if the raw file exists"
     )
@@ -123,7 +115,7 @@ def main() -> None:
     with engine.begin() as conn:
         firm_id = upsert_firm(conn)
 
-    for filing in select_filings(args.quarter):
+    for filing in select_filings(args.quarter, args.doc_type):
         raw, origin = load_raw(filing, args.refetch)
         checksum = hashlib.sha256(raw).hexdigest()
         with engine.begin() as conn:
