@@ -18,7 +18,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FIRM, Filing, select_filings
+from filings_config import FIRMS, Filing, select_filings
+from transcript_jpm import parse_pdf
 
 load_dotenv()
 
@@ -74,7 +75,9 @@ ORG_RE = re.compile(rf"^[{_UPPER}][\w&.\u2019' -]*[\w)]$")
 SUSPECT_RE = re.compile(rf"^[{_UPPER}][\w.\u2019'-]*(?:[ ,;]+[{_UPPER}&][\w.\u2019'&-]*){{1,5}}$")
 # A hyphenated word split over two line blocks comes back as 'pre -tax'.
 BROKEN_HYPHEN_RE = re.compile(r"(?<=[a-z]) -(?=[a-z])")
-
+# Editorial insertions kept in the text, e.g. '[edit: 14 million]',
+# '[indiscernible]', '[assets]'. The export README names the same expression.
+BRACKET_RE = re.compile(r"\[[^\]]*\]")
 SPEAKER_MAX_LEN = 60
 PAGE_STEP_MAX = 3  # a page number may skip up to two unnumbered pages
 
@@ -163,6 +166,11 @@ def best_parse(html: bytes) -> tuple[list[dict], dict]:
     meta["utterances_per_grouping"] = {n: len(r[0]) for n, r in results.items()}
     return utterances, meta
 
+def parse_filing(filing: Filing) -> tuple[list[dict], dict]:
+    """Dispatch to the parser the document format needs."""
+    if filing.media == "pdf":
+        return parse_pdf(filing.raw_path)
+    return best_parse(filing.raw_path.read_bytes())
 
 def unglue(name: str) -> str:
     """'P.Ermotti' -> 'P. Ermotti'; a single token 'TomHallet' -> 'Tom Hallet'."""
@@ -332,25 +340,31 @@ def summary_line(filing: Filing, utterances: list[dict], meta: dict) -> None:
     roles = {r: {u["speaker_name"] for u in utterances if u["speaker_role"] == r}
              for r in ("management", "analyst")}
     print(
-        f"{filing.quarter} ({filing.label})  utt {len(utterances):4d}  "
+        f"{filing.firm:<4} {filing.quarter} ({filing.label})  {filing.call_type:<8} "
+        f"utt {len(utterances):4d}  "
         f"prep {sections['prepared']:3d}  qa {sections['qa']:4d}  "
         f"mgmt {len(roles['management'])}  analysts {len(roles['analyst']):2d}  "
         f"suspects {len(meta['suspects']):2d}  "
         f"qa-header {'yes' if meta['qa_header'] else 'NO '}  "
-        f"grouping {meta['grouping']:9s}  cover {meta['cover_end']}"
+        f"parser {meta.get('grouping', filing.media):9s}  cover {meta['cover_end']}"
     )
 
 
 def dry_run_report(filing: Filing, utterances: list[dict], meta: dict) -> None:
     sections = Counter(u["section"] for u in utterances)
-    print(f"=== {filing.quarter} ({filing.label}), call {filing.call_date}, {filing.raw_path}")
+    print(f"{filing.firm} {filing.quarter} ({filing.label}) {filing.call_type}, "
+          f"call {filing.call_date}, {filing.raw_path}")
     print(f"cover end: {meta['cover_end']}  |  qa header: "
           f"{'found' if meta['qa_header'] else 'NOT FOUND'}")
     print(f"page numbers skipped: {meta['pages_skipped']}, "
           f"standalone numbers kept as text: {meta['numbers_kept']}")
-    per_grouping = ", ".join(f"{n} {c}" for n, c in meta["utterances_per_grouping"].items())
-    print(f"grouping: {meta['grouping']} (utterances per grouping: {per_grouping}), "
-          f"{meta['blocks']} blocks, longest {meta['longest_block']:,} chars")
+    if "utterances_per_grouping" in meta:
+        per_grouping = ", ".join(f"{n} {c}" for n, c in meta["utterances_per_grouping"].items())
+        print(f"grouping: {meta['grouping']} (utterances per grouping: {per_grouping}), "
+              f"{meta['blocks']} blocks, longest {meta['longest_block']:,} chars")
+    else:
+        print(f"pdf: {meta['separators']} separators, "
+              f"{meta['merged_continuations']} page-break continuations merged")
     print(f"{len(utterances)} utterances (prepared {sections['prepared']}, qa {sections['qa']})\n")
 
     print("--- speaker overview ---")
@@ -394,24 +408,26 @@ def write(filing: Filing, utterances: list[dict]) -> None:
                 """
                 select f.id as firm_id, fi.id as filing_id
                 from firms f
-                join filings fi on fi.firm_id = f.id
-                where f.ticker = :ticker and fi.quarter = :quarter
+                         join filings fi on fi.firm_id = f.id
+                where f.ticker = :ticker
+                  and fi.quarter = :quarter
                   and fi.doc_type = :doc_type
+                  and fi.call_type = :call_type
                 """
             ),
-            {"ticker": FIRM["ticker"], "quarter": filing.quarter,
-             "doc_type": filing.doc_type},
+            {"ticker": filing.firm, "quarter": filing.quarter,
+             "doc_type": filing.doc_type, "call_type": filing.call_type},
         ).one()
 
         call_id = conn.execute(
             text(
                 """
-                insert into calls (firm_id, filing_id, quarter, call_date)
-                values (:firm_id, :filing_id, :quarter, :call_date)
-                on conflict (firm_id, quarter)
-                    do update set call_date = excluded.call_date,
-                                  filing_id = excluded.filing_id
-                returning id
+                insert into calls (firm_id, filing_id, quarter, call_date, call_type)
+                values (:firm_id, :filing_id, :quarter, :call_date, :call_type) on conflict (firm_id, quarter, call_type)
+                        do
+                update set call_date = excluded.call_date,
+                    filing_id = excluded.filing_id
+                    returning id
                 """
             ),
             {
@@ -419,6 +435,7 @@ def write(filing: Filing, utterances: list[dict]) -> None:
                 "filing_id": row.filing_id,
                 "quarter": filing.quarter,
                 "call_date": filing.call_date,
+                "call_type": filing.call_type,
             },
         ).scalar_one()
 
@@ -430,27 +447,31 @@ def write(filing: Filing, utterances: list[dict]) -> None:
                 text(
                     """
                     insert into utterances
-                        (call_id, seq, speaker_name, speaker_org, speaker_role,
-                         section, body)
-                    values
-                        (:call_id, :seq, :speaker_name, :speaker_org, :speaker_role,
-                         :section, :body)
+                    (call_id, seq, speaker_name, speaker_org, speaker_role,
+                     section, body)
+                    values (:call_id, :seq, :speaker_name, :speaker_org, :speaker_role,
+                            :section, :body)
                     """
                 ),
                 {**u, "call_id": call_id},
             )
-    print(f"  wrote call {call_id} ({filing.quarter}) with {len(utterances)} utterances")
+    print(f"  wrote call {call_id} ({filing.firm} {filing.quarter} {filing.call_type}) "
+          f"with {len(utterances)} utterances")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--bank", help=f"one bank: {', '.join(FIRMS)} (default: all)")
     ap.add_argument("--quarter", help="one quarter, e.g. 1Q23 or 2023-Q1 (default: all)")
+    ap.add_argument("--call-type", help="earnings or event (default: both)")
     ap.add_argument("--write", action="store_true",
                     help="write to the database (default: dry run)")
     args = ap.parse_args()
 
-    for filing in select_filings(args.quarter):
-        utterances, meta = best_parse(filing.raw_path.read_bytes())
+    filings = select_filings(args.quarter, "transcript", args.bank, args.call_type)
+
+    for filing in filings:
+        utterances, meta = parse_filing(filing)
         if args.quarter:
             dry_run_report(filing, utterances, meta)
         else:
@@ -458,7 +479,7 @@ def main() -> None:
         if args.write:
             problem = write_blocker(utterances, meta)
             if problem:
-                print(f"  NOT WRITTEN {filing.quarter}: {problem}")
+                print(f"  NOT WRITTEN {filing.firm} {filing.quarter}: {problem}")
             else:
                 write(filing, utterances)
 

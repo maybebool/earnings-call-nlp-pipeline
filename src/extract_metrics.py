@@ -24,7 +24,8 @@ from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FIRM, Filing, select_filings
+from filings_config import FIRMS, Filing, select_filings
+from metrics_jpm import key_figures
 
 load_dotenv()
 
@@ -320,7 +321,7 @@ def resolve_label(label: str, pending: list[str], following: list[str]):
     return label, None, "reported", 0
 
 
-def extract(filing: Filing) -> tuple[list[dict], dict]:
+def extract_ubs(filing: Filing) -> tuple[list[dict], dict]:
     meta = {"rows": 0, "unmapped": [], "table_found": False}
     rows, parser = key_figures_rows(filing.raw_path.read_bytes(), filing.quarter)
     if rows is None:
@@ -356,6 +357,7 @@ def extract(filing: Filing) -> tuple[list[dict], dict]:
             continue
 
         metrics.append({
+            "firm": filing.firm,
             "quarter": filing.quarter,
             "metric_name": name,
             "value": value,
@@ -369,17 +371,40 @@ def extract(filing: Filing) -> tuple[list[dict], dict]:
     meta["duplicates"] = [k for k, n in seen.items() if n > 1]
     return metrics, meta
 
+def extract_jpm(filing: Filing) -> tuple[list[dict], dict]:
+    """The JPMorgan branch: ordinary HTML tables, see metrics_jpm."""
+    found, raw_meta = key_figures(filing.raw_path.read_bytes(), filing.label)
+    metrics = [
+        {**m, "firm": filing.firm, "quarter": filing.quarter,
+         "label": m["metric_name"]}
+        for m in found
+    ]
+    seen = Counter((m["metric_name"], m["basis"]) for m in metrics)
+    return metrics, {
+        "rows": raw_meta["rows"],
+        "unmapped": [f"[{section}] {label}"
+                     for section, label in raw_meta["unmapped"]],
+        "table_found": raw_meta["table_found"],
+        "parser": f"html, {raw_meta['tables']} highlights tables",
+        "duplicates": [k for k, n in seen.items() if n > 1],
+    }
+
+
+def extract(filing: Filing) -> tuple[list[dict], dict]:
+    """Dispatch to the branch the bank's report format needs."""
+    if filing.firm == "JPM":
+        return extract_jpm(filing)
+    return extract_ubs(filing)
 
 def report(filing: Filing, metrics: list[dict], meta: dict) -> None:
-    print(f"=== {filing.quarter} ({filing.label})  {filing.raw_path}")
+    print(f"=== {filing.firm} {filing.quarter} ({filing.label})  {filing.raw_path}")
     if not meta["table_found"]:
         print("KEY FIGURES TABLE NOT FOUND\n")
         return
-    reported = [m for m in metrics if m["basis"] == "reported"]
-    underlying = [m for m in metrics if m["basis"] == "underlying"]
+    per_basis = Counter(m["basis"] for m in metrics)
     print(f"parser: {meta['parser']}")
-    print(f"{meta['rows']} table rows -> {len(reported)} reported, "
-          f"{len(underlying)} underlying metrics")
+    print(f"{meta['rows']} table rows -> "
+          + ", ".join(f"{n} {b}" for b, n in sorted(per_basis.items())))
     if meta["duplicates"]:
         print(f"DUPLICATES: {meta['duplicates']}")
     if meta["unmapped"]:
@@ -387,23 +412,25 @@ def report(filing: Filing, metrics: list[dict], meta: dict) -> None:
         for label in meta["unmapped"]:
             print(f"    {label}")
     for m in metrics:
-        basis = "" if m["basis"] == "reported" else "  [underlying]"
+        basis = "" if m["basis"] == "reported" else f"  [{m['basis']}]"
         print(f"  {m['metric_name']:<38} {m['value']:>14,.2f} {m['unit']:<8}{basis}")
     print()
 
 
-def matrix(all_metrics: list[dict], quarters: list[str]) -> None:
+def matrix(all_metrics: list[dict], columns: list[tuple[str, str]]) -> None:
     names = sorted({(m["metric_name"], m["basis"], m["unit"]) for m in all_metrics})
-    by_key = {(m["quarter"], m["metric_name"], m["basis"]): m["value"] for m in all_metrics}
-    head = "".join(f"{q[2:]:>13s}" for q in quarters)
-    print(f"{'metric':<38}{'unit':<8}{head}")
+    by_key = {(m["firm"], m["quarter"], m["metric_name"], m["basis"]): m["value"]
+              for m in all_metrics}
+    head = "".join(f"{firm + ' ' + quarter[2:]:>14s}" for firm, quarter in columns)
+    print(f"{'metric':<40}{'unit':<8}{head}")
     for name, basis, unit in names:
-        label = name if basis == "reported" else f"{name} (underlying)"
+        label = name if basis == "reported" else f"{name} ({basis})"
         cells = "".join(
-            f"{by_key[(q, name, basis)]:>13,.1f}" if (q, name, basis) in by_key else f"{'-':>13s}"
-            for q in quarters
+            f"{by_key[(firm, quarter, name, basis)]:>14,.1f}"
+            if (firm, quarter, name, basis) in by_key else f"{'-':>14s}"
+            for firm, quarter in columns
         )
-        print(f"{label:<38}{unit:<8}{cells}")
+        print(f"{label:<40}{unit:<8}{cells}")
 
 
 def write(all_metrics: list[dict]) -> None:
@@ -412,23 +439,27 @@ def write(all_metrics: list[dict]) -> None:
         rows = conn.execute(
             text(
                 """
-                select fi.quarter, f.id as firm_id, fi.id as filing_id
+                select f.ticker, fi.quarter, f.id as firm_id, fi.id as filing_id
                 from filings fi
-                join firms f on f.id = fi.firm_id
-                where f.ticker = :ticker and fi.doc_type = 'report'
+                         join firms f on f.id = fi.firm_id
+                where fi.doc_type = 'report'
                 """
             ),
-            {"ticker": FIRM["ticker"]},
         ).all()
-        ids = {r.quarter: (r.firm_id, r.filing_id) for r in rows}
+        ids = {(r.ticker, r.quarter): (r.firm_id, r.filing_id) for r in rows}
 
-        missing = sorted({m["quarter"] for m in all_metrics} - ids.keys())
+        missing = sorted({(m["firm"], m["quarter"]) for m in all_metrics} - ids.keys())
+        if missing:
+            raise SystemExit(
+                f"no report filing row for {missing}; "
+                f"run fetch_edgar --doc-type report for those banks"
+            )
         if missing:
             raise SystemExit(f"no report filing row for {missing}; run fetch_edgar --doc-type report")
 
         written = 0
         for m in all_metrics:
-            firm_id, filing_id = ids[m["quarter"]]
+            firm_id, filing_id = ids[(m["firm"], m["quarter"])]
             conn.execute(
                 text(
                     """
@@ -442,7 +473,7 @@ def write(all_metrics: list[dict]) -> None:
                                       filing_id = excluded.filing_id
                     """
                 ),
-                {**{k: v for k, v in m.items() if k != "label"},
+                {**{k: v for k, v in m.items() if k not in ("label", "firm")},
                  "firm_id": firm_id, "filing_id": filing_id},
             )
             written += 1
@@ -451,6 +482,7 @@ def write(all_metrics: list[dict]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--bank", help=f"one bank: {', '.join(FIRMS)} (default: all)")
     ap.add_argument("--quarter", help="one quarter, e.g. 1Q23 or 2023-Q1 (default: all)")
     ap.add_argument("--matrix", action="store_true",
                     help="print a metric x quarter overview instead of per-quarter detail")
@@ -458,7 +490,7 @@ def main() -> None:
                     help="write to the database (default: dry run)")
     args = ap.parse_args()
 
-    filings = select_filings(args.quarter, doc_type="report")
+    filings = select_filings(args.quarter, "report", args.bank)
     all_metrics: list[dict] = []
     problems = []
     for filing in filings:
@@ -467,10 +499,10 @@ def main() -> None:
         if not args.matrix:
             report(filing, metrics, meta)
         if not meta["table_found"] or meta["duplicates"] or not metrics:
-            problems.append(filing.quarter)
+            problems.append(f"{filing.firm} {filing.quarter}")
 
     if args.matrix:
-        matrix(all_metrics, [f.quarter for f in filings])
+        matrix(all_metrics, [(f.firm, f.quarter) for f in filings])
         print()
 
     print(f"{len(all_metrics)} metric rows over {len(filings)} quarters")

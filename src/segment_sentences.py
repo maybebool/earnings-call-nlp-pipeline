@@ -1,21 +1,52 @@
 ﻿"""Stage 3: split utterances into sentences.
 
 Usage:
-    python src/segment_sentences.py            # dry run: stats + samples, writes nothing
-    python src/segment_sentences.py --write    # write sentences to the DB
+    python src/segment_sentences.py                    # dry run over everything
+    python src/segment_sentences.py --bank JPM         # dry run for one bank
+    python src/segment_sentences.py --bank JPM --write # write that bank's sentences
 
 Uses syntok, which handles abbreviations, decimal numbers and currency
-figures well -- the usual breaking points in finance text. Re-runs replace
-the sentences of every call present (utterance cascade keeps things clean).
+figures well -- the usual breaking points in finance text.
+
+A write replaces the sentences of the calls in scope and nothing else. Every
+model result hangs off `sentences` with `on delete cascade`, so from stage 5
+onwards a careless rebuild would silently take the sentiments and topic
+assignments with it. Limiting the scope with --bank keeps a rerun for one
+bank from touching the other one.
 """
 import argparse
 import os
+from collections import Counter
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from syntok import segmenter
 
+from filings_config import FIRMS
+
 load_dotenv()
+
+UTTERANCE_QUERY = text(
+    """
+    select u.id as id, u.body as body, f.ticker as bank
+    from utterances u
+    join calls c on c.id = u.call_id
+    join firms f on f.id = c.firm_id
+    where cast(:ticker as text) is null or f.ticker = :ticker
+    order by u.id
+    """
+)
+
+DELETE_QUERY = text(
+    """
+    delete from sentences s
+    using utterances u, calls c, firms f
+    where s.utterance_id = u.id
+      and u.call_id = c.id
+      and c.firm_id = f.id
+      and (cast(:ticker as text) is null or f.ticker = :ticker)
+    """
+)
 
 
 def get_engine():
@@ -37,43 +68,61 @@ def split_sentences(body: str) -> list[str]:
     return sentences
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--write", action="store_true",
-                    help="write to the database (default: dry run)")
-    args = ap.parse_args()
-
-    engine = get_engine()
-    with engine.connect() as conn:
-        utterances = conn.execute(
-            text("select id, body from utterances order by id")
-        ).all()
-
-    all_rows = []
-    for utt_id, body in utterances:
-        for seq, s in enumerate(split_sentences(body), start=1):
-            all_rows.append({"utterance_id": utt_id, "seq": seq, "body": s})
-
-    # dry-run report
-    lengths = sorted(len(r["body"]) for r in all_rows)
+def report(utterances: list, rows: list[dict]) -> None:
+    lengths = sorted(len(r["body"]) for r in rows)
     n = len(lengths)
     print(f"{len(utterances)} utterances -> {n} sentences")
     print(f"chars per sentence: min {lengths[0]}, median {lengths[n // 2]}, "
           f"max {lengths[-1]}")
+
+    per_bank_utt = Counter(u.bank for u in utterances)
+    per_bank_sent = Counter(r["bank"] for r in rows)
+    print("\n--- per bank ---")
+    for bank in sorted(per_bank_utt):
+        utt, sent = per_bank_utt[bank], per_bank_sent[bank]
+        print(f"{bank:<4} {utt:5,} utterances  {sent:6,} sentences  "
+              f"{sent / utt:5.1f} per utterance")
+
     print("\n--- longest 5 sentences (check for missed splits) ---")
-    for r in sorted(all_rows, key=lambda r: -len(r["body"]))[:5]:
-        print(f"[{len(r['body'])} chars] {r['body'][:100]}")
+    for r in sorted(rows, key=lambda r: -len(r["body"]))[:5]:
+        print(f"[{r['bank']}, {len(r['body'])} chars] {r['body'][:100]}")
     print("\n--- shortest 5 sentences (check for fragments) ---")
-    for r in sorted(all_rows, key=lambda r: len(r["body"]))[:5]:
-        print(f"[{len(r['body'])} chars] {r['body']}")
+    for r in sorted(rows, key=lambda r: len(r["body"]))[:5]:
+        print(f"[{r['bank']}, {len(r['body'])} chars] {r['body']}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bank", help=f"one bank: {', '.join(FIRMS)} (default: all)")
+    ap.add_argument("--write", action="store_true",
+                    help="write to the database (default: dry run)")
+    args = ap.parse_args()
+
+    if args.bank is not None and args.bank not in FIRMS:
+        raise SystemExit(f"unknown bank {args.bank!r}, expected one of {tuple(FIRMS)}")
+    scope = {"ticker": args.bank}
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        utterances = conn.execute(UTTERANCE_QUERY, scope).all()
+    if not utterances:
+        raise SystemExit(f"no utterances for bank={args.bank!r}")
+
+    rows = [
+        {"utterance_id": u.id, "seq": seq, "body": s, "bank": u.bank}
+        for u in utterances
+        for seq, s in enumerate(split_sentences(u.body), start=1)
+    ]
+
+    report(utterances, rows)
 
     if not args.write:
         print("\ndry run only -- rerun with --write to store")
         return
 
     with engine.begin() as conn:
-        conn.execute(text("delete from sentences"))
-        for row in all_rows:
+        removed = conn.execute(DELETE_QUERY, scope).rowcount
+        for row in rows:
             conn.execute(
                 text(
                     """
@@ -81,9 +130,10 @@ def main() -> None:
                     values (:utterance_id, :seq, :body)
                     """
                 ),
-                row,
+                {k: v for k, v in row.items() if k != "bank"},
             )
-    print(f"\nwrote {n} sentences")
+    target = args.bank or "all banks"
+    print(f"\n{target}: deleted {removed:,} sentences, wrote {len(rows):,}")
 
 
 if __name__ == "__main__":
