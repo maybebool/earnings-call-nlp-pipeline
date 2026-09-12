@@ -6,6 +6,7 @@ Layout of one release (the folder is copied as a whole to the shared Drive):
         README.md
         all_utterances.csv
         all_sentences.csv
+        all_metrics.csv
         UBS/
             UBS_2023-Q1_call_utterances.csv
             UBS_2023-Q1_call_sentences.csv
@@ -61,6 +62,16 @@ UTTERANCE_QUERY = text(
     """
 )
 
+METRIC_COLUMNS = {
+    "bank": "Ticker of the bank (currently only UBS).",
+    "quarter": "Reporting period in ISO form YYYY-Qn, the same key as in the text files.",
+    "metric_name": "Short name of the figure, e.g. `pbt`, `cost_income_ratio`, `cet1_ratio`.",
+    "value": "The figure as published, in the unit given in `unit`.",
+    "unit": "`USD m`, `USD bn`, `USD` (per share), `percent` or `count`.",
+    "basis": "`reported` as published, or `underlying` for the variant excluding "
+             "negative goodwill, integration-related expenses and acquisition costs.",
+}
+
 SENTENCE_QUERY = text(
     """
     select
@@ -83,6 +94,21 @@ SENTENCE_QUERY = text(
     """
 )
 
+METRIC_QUERY = text(
+    """
+    select
+        f.ticker            as bank,
+        m.quarter           as quarter,
+        m.metric_name       as metric_name,
+        m.value             as value,
+        m.unit              as unit,
+        m.basis             as basis
+    from metrics m
+    join firms f on f.id = m.firm_id
+    order by f.ticker, m.quarter, m.metric_name, m.basis
+    """
+)
+
 SUMMARY_QUERY = text(
     """
     select
@@ -91,13 +117,15 @@ SUMMARY_QUERY = text(
         c.call_date             as call_date,
         fi.accession_number     as accession_number,
         count(distinct u.id)    as utterances,
-        count(s.id)             as sentences
+        count(s.id)             as sentences,
+        (select count(*) from metrics m
+          where m.firm_id = f.id and m.quarter = c.quarter) as metrics
     from calls c
     join firms f on f.id = c.firm_id
     join filings fi on fi.id = c.filing_id
     join utterances u on u.call_id = c.id
     left join sentences s on s.utterance_id = u.id
-    group by f.ticker, c.quarter, c.call_date, fi.accession_number
+    group by f.id, f.ticker, c.quarter, c.call_date, fi.accession_number
     order by f.ticker, c.quarter
     """
 )
@@ -153,16 +181,17 @@ def column_table(columns: dict[str, str]) -> str:
 
 
 def build_readme(release: str, summary: list[dict]) -> str:
-    contents = ["| Bank | Quarter | Call date | EDGAR accession | Statements | Sentences |",
-                "|---|---|---|---|---|---|"]
+    contents = ["| Bank | Quarter | Call date | EDGAR accession | Statements | Sentences | Metrics |",
+                "|---|---|---|---|---|---|---|"]
     contents += [
         f"| {r['bank']} | {r['quarter']} | {r['call_date']} | {r['accession_number']} "
-        f"| {r['utterances']:,} | {r['sentences']:,} |"
+        f"| {r['utterances']:,} | {r['sentences']:,} | {r['metrics']:,} |"
         for r in summary
     ]
-    total_utt = sum(r["utterances"] for r in summary)
-    total_sent = sum(r["sentences"] for r in summary)
-    contents.append(f"| **Total** | | | | **{total_utt:,}** | **{total_sent:,}** |")
+    totals = {k: sum(r[k] for r in summary) for k in ("utterances", "sentences", "metrics")}
+    contents.append(f"| **Total** | | | | **{totals['utterances']:,}** "
+                    f"| **{totals['sentences']:,}** | **{totals['metrics']:,}** |")
+    metric_table = column_table(METRIC_COLUMNS)
 
     return f"""# Earnings call transcripts, release {release}
 
@@ -174,7 +203,7 @@ Analysis reads only these exports; nobody parses the original PDF or HTML docume
 
 ## Files
 
-`all_utterances.csv` and `all_sentences.csv` contain all quarters in one file each (`bank` and `quarter` are columns). The folder `UBS/` contains the same data split into one file per call, named `UBS_<quarter>_call_utterances.csv` and `UBS_<quarter>_call_sentences.csv`. "call" means the files include the prepared remarks as well as the Q&A; filter on `section` to keep only one part.
+`all_utterances.csv` and `all_sentences.csv` contain all quarters in one file each (`bank` and `quarter` are columns). The folder `UBS/` contains the same data split into one file per call, named `UBS_<quarter>_call_utterances.csv` and `UBS_<quarter>_call_sentences.csv`. "call" means the files include the prepared remarks as well as the Q&A; filter on `section` to keep only one part. `all_metrics.csv` holds the reported figures of all quarters and is not split, being small; join it to the text on `bank` and `quarter`.
 
 {chr(10).join(contents)}
 
@@ -185,6 +214,14 @@ Analysis reads only these exports; nobody parses the original PDF or HTML docume
 ## Columns of the sentence files (one row per sentence)
 
 {column_table(SENTENCE_COLUMNS)}
+
+## Columns of all_metrics.csv (one row per figure and quarter)
+
+{metric_table}
+
+The figures come from the "Our key figures" table of the UBS Group AG quarterly report of that quarter, as originally published. Comparative and year-to-date columns are not included, and figures restated in a later report are not applied, so every number matches the quarter's own report. A figure that a quarter does not publish is absent rather than zero: UBS reports no effective tax rate or profit growth in the loss-making quarters, and negative goodwill arises only in 2023-Q2. The `underlying` basis likewise exists only in 2023-Q2. To read the figures as a table rather than join them, pivot in one line: `df.pivot_table(index="metric_name", columns="quarter", values="value")`.
+
+Note that the Credit Suisse acquisition closed in 2023-Q2. Balance sheet and headcount figures jump between 2023-Q1 and 2023-Q2 for that reason, and the profit and return figures of 2023-Q2 are driven by USD 28.9bn of negative goodwill. A series across the whole window is therefore not comparable throughout.
 
 ## sentence_id versus sentence_number
 
@@ -212,12 +249,16 @@ def main() -> None:
 
     utterances = fetch(UTTERANCE_QUERY)
     sentences = fetch(SENTENCE_QUERY)
+    metrics = fetch(METRIC_QUERY)
     summary = fetch(SUMMARY_QUERY)
     if not utterances or not sentences:
         raise SystemExit("nothing to export: utterances or sentences are empty")
+    if not metrics:
+        raise SystemExit("nothing to export: metrics are empty, run extract_metrics --write")
 
     write_csv(release_dir / "all_utterances.csv", utterances)
     write_csv(release_dir / "all_sentences.csv", sentences)
+    write_csv(release_dir / "all_metrics.csv", metrics)
 
     utt_groups = group_by_document(utterances)
     sent_groups = group_by_document(sentences)
