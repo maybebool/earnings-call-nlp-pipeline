@@ -1,5 +1,5 @@
 [project]
-name = "boe-earnings-calls"
+name = "earnings-call-nlp-pipeline"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [

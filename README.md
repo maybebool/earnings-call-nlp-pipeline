@@ -1,4 +1,4 @@
-# boe-earnings-calls
+# earnings-call-nlp-pipeline
 
 Pipeline for a Bank of England employer project: earnings call transcripts and
 reported key figures of UBS Group AG and JPMorgan Chase & Co. from 1Q23 to
