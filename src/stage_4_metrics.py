@@ -1,10 +1,10 @@
-﻿"""Read the 'Our key figures' table of each quarterly report.
+"""Read the 'Our key figures' table of each quarterly report.
 
 Usage:
-    python src/extract_metrics.py # dry run over all quarters
-    python src/extract_metrics.py --quarter 1Q23 # dry run, one quarter
-    python src/extract_metrics.py --matrix # metric x quarter overview
-    python src/extract_metrics.py --write # write to the metrics table
+    python src/stage_4_metrics.py # dry run over all quarters
+    python src/stage_4_metrics.py --quarter 1Q23 # dry run, one quarter
+    python src/stage_4_metrics.py --matrix # metric x quarter overview
+    python src/stage_4_metrics.py --write # write to the metrics table
 
 Only the reporting quarter's own figures are stored. In the 1Q23 report that
 is the first data column of the table; from 2Q23 on the reports are PDF
@@ -24,8 +24,8 @@ from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FIRMS, Filing, select_filings
-from metrics_jpm import key_figures
+from config import FIRMS, Filing, select_filings
+from parsers.jpm_metrics import key_figures
 
 load_dotenv()
 
@@ -515,10 +515,11 @@ def write(all_metrics: list[dict]) -> None:
         if missing:
             raise SystemExit(
                 f"no report filing row for {missing}; "
-                f"run fetch_edgar --doc-type report for those banks"
+                f"run stage_1_fetch --doc-type report for those banks"
             )
         if missing:
-            raise SystemExit(f"no report filing row for {missing}; run fetch_edgar --doc-type report")
+            raise SystemExit(f"no report filing row for {missing}; "
+                             f"run stage_1_fetch --doc-type report")
 
         written = 0
         for m in all_metrics:

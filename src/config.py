@@ -1,4 +1,4 @@
-﻿"""Target filings for the multi-bank build: UBS and JPMorgan Chase, 1Q23 to 4Q24.
+"""Target filings for the multi-bank build: UBS and JPMorgan Chase, 1Q23 to 4Q24.
 
 Per bank and quarter: the earnings call transcript and the quarterly report
 that carries the key figures table. JPMorgan adds one event call, the First
@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-RAW_DIR = Path("data/raw")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
 
 FIRMS = {
     "UBS": {

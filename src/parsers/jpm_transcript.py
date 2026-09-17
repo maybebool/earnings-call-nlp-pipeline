@@ -1,6 +1,6 @@
-﻿"""Parse the JPMorgan transcript PDFs into utterances.
+"""Parse the JPMorgan transcript PDFs into utterances.
 
-Same contract as the UBS branch in parse_transcript: parse_pdf returns a list
+Same contract as the UBS branch in stage_2_parse: parse_pdf returns a list
 of utterance dicts and a meta dict of diagnostics.
 
 Page numbers sit on their own line at the foot of a page. When an utterance

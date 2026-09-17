@@ -1,4 +1,4 @@
-﻿"""Export a dated release of utterance- and sentence-level CSVs.
+"""Export a dated release of utterance- and sentence-level CSVs.
 
 Layout of one release (the folder is copied as a whole to the shared Drive):
 
@@ -21,9 +21,9 @@ than the quarterly earnings call carries its call type. The earnings call
 names stay as they were.
 
 Usage:
-    python src/export_team_csv.py # release named after today
-    python src/export_team_csv.py --release 2026-09-12 # explicit release date
-    python src/export_team_csv.py --force # rebuild an existing release
+    python src/stage_final_export.py # release named after today
+    python src/stage_final_export.py --release 2026-09-12 # explicit release date
+    python src/stage_final_export.py --force # rebuild an existing release
 """
 import argparse
 import csv
@@ -38,7 +38,7 @@ from sqlalchemy import create_engine, text
 
 load_dotenv()
 
-EXPORT_ROOT = Path("exports")
+EXPORT_ROOT = Path(__file__).resolve().parents[1] / "exports"
 
 def get_engine():
     """Generate a SQL Alchemy engine for a PostgreSQL database connection.
@@ -331,7 +331,7 @@ def main() -> None:
     if not utterances or not sentences:
         raise SystemExit("nothing to export: utterances or sentences are empty")
     if not metrics:
-        raise SystemExit("nothing to export: metrics are empty, run extract_metrics --write")
+        raise SystemExit("nothing to export: metrics are empty, run stage_4_metrics --write")
 
     write_csv(release_dir / "all_utterances.csv", utterances)
     write_csv(release_dir / "all_sentences.csv", sentences)

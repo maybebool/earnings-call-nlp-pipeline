@@ -1,14 +1,14 @@
-﻿"""Diagnostic: show how a quarterly report encodes its key figures.
+"""Diagnostic: show how a quarterly report encodes its key figures.
 
 Usage:
-    python src/inspect_report.py --quarter 2Q23
+        python src/tools/ubs_inspect_report.py --quarter 2Q23
 """
 import argparse
 import warnings
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
-from filings_config import select_filings
+from config import select_filings
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 

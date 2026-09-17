@@ -1,4 +1,4 @@
-﻿""" Fetch the configured filings and record them in `filings`.
+""" Fetch the configured filings and record them in `filings`.
 
 Two sources. EDGAR documents are fetched with the SEC user agent and a pause
 between requests to stay inside the fair-access limit. Documents that a
@@ -10,10 +10,10 @@ given, and existing `filings` rows are never overwritten. A checksum that
 differs from the stored one is reported, not silently fixed.
 
 Usage:
-    python src/fetch_edgar.py --bank UBS # transcripts, all quarters
-    python src/fetch_edgar.py --bank JPM --doc-type report # the key figures documents
-    python src/fetch_edgar.py --bank JPM --quarter 2Q23 # both 2Q23 calls
-    python src/fetch_edgar.py # every bank and transcript
+    python src/stage_1_fetch.py --bank UBS # transcripts, all quarters
+    python src/stage_1_fetch.py --bank JPM --doc-type report # the key figures documents
+    python src/stage_1_fetch.py --bank JPM --quarter 2Q23 # both 2Q23 calls
+    python src/stage_1_fetch.py # every bank and transcript
 """
 import argparse
 import hashlib
@@ -24,7 +24,7 @@ import requests
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FIRMS, Filing, select_filings
+from config import FIRMS, Filing, select_filings
 
 load_dotenv()
 

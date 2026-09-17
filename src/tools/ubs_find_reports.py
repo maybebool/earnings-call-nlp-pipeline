@@ -1,14 +1,14 @@
-﻿"""Helper: list UBS Group AG 6-K filings on EDGAR so we can pick the reports.
+"""Helper: list UBS Group AG 6-K filings on EDGAR so we can pick the reports.
 
 UBS only. The name hints and the cover-page phrase this looks for are
 specific to the UBS filings; JPMorgan files its supplements as 8-K exhibits
 with entirely different naming.
 
 Usage:
-    python src/find_reports.py # 2023-01-01 to 2025-03-31
-    python src/find_reports.py --from 2023-01-01 --to 2025-03-31
-    python src/find_reports.py --all # do not filter by name
-    python src/find_reports.py --describe # label each candidate
+    python src/tools/ubs_find_reports.py # 2023-01-01 to 2025-03-31
+    python src/tools/ubs_find_reports.py --from 2023-01-01 --to 2025-03-31
+    python src/tools/ubs_find_reports.py --all # do not filter by name
+    python src/tools/ubs_find_reports.py --describe # label each candidate
 """
 import argparse
 import html
@@ -19,7 +19,7 @@ import time
 import requests
 from dotenv import load_dotenv
 
-from filings_config import FIRMS
+from config import FIRMS
 
 load_dotenv()
 

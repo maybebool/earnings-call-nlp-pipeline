@@ -1,9 +1,9 @@
-﻿"""Split utterances into sentences.
+"""Split utterances into sentences.
 
 Usage:
-    python src/segment_sentences.py # dry run over everything
-    python src/segment_sentences.py --bank JPM # dry run for one bank
-    python src/segment_sentences.py --bank JPM --write # write that bank's sentences
+    python src/stage_3_segment.py # dry run over everything
+    python src/stage_3_segment.py --bank JPM # dry run for one bank
+    python src/stage_3_segment.py --bank JPM --write # write that bank's sentences
 
 Uses syntok, which handles abbreviations, decimal numbers and currency
 figures well -- the usual breaking points in finance text.
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from syntok import segmenter
 
-from filings_config import FIRMS
+from config import FIRMS
 
 load_dotenv()
 

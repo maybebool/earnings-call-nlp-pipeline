@@ -1,12 +1,12 @@
-﻿"""Parse the transcript HTML into calls and utterances.
+"""Parse the transcript HTML into calls and utterances.
 
 Usage:
-    python src/parse_transcript.py # summary dry run, all quarters
-    python src/parse_transcript.py --quarter 1Q23 # detailed dry run, one quarter
-    python src/parse_transcript.py --quarter 1Q23 --write # write one quarter
-    python src/parse_transcript.py --write # write all quarters
+    python src/stage_2_parse.py # summary dry run, all quarters
+    python src/stage_2_parse.py --quarter 1Q23 # detailed dry run, one quarter
+    python src/stage_2_parse.py --quarter 1Q23 --write # write one quarter
+    python src/stage_2_parse.py --write # write all quarters
 
-Quarters, raw files and call dates come from filings_config. A quarter is
+Quarters, raw files and call dates come from config. A quarter is
 only written if its Q&A header was found and it produced utterances.
 """
 import argparse
@@ -18,8 +18,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from filings_config import FIRMS, Filing, select_filings
-from transcript_jpm import parse_pdf
+from config import FIRMS, Filing, select_filings
+from parsers.jpm_transcript import parse_pdf
 
 load_dotenv()
 
