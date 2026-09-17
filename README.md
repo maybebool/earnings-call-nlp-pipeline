@@ -1,5 +1,14 @@
 # earnings-call-nlp-pipeline
-
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![Alembic](https://img.shields.io/badge/Alembic-Migrations-6BA81E?style=flat-square)](https://alembic.sqlalchemy.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Beautiful Soup](https://img.shields.io/badge/BeautifulSoup-HTML_Parsing-4B8BBE?style=flat-square)](https://www.crummy.com/software/BeautifulSoup/)
+[![pdfplumber](https://img.shields.io/badge/pdfplumber-PDF_Extraction-D14836?style=flat-square)](https://github.com/jsvine/pdfplumber)
+[![syntok](https://img.shields.io/badge/syntok-Sentence_Segmentation-8A4FFF?style=flat-square)](https://github.com/fnl/syntok)
+[![SEC EDGAR](https://img.shields.io/badge/SEC_EDGAR-Filings-1F4E79?style=flat-square)](https://www.sec.gov/edgar)
+[![Licence](https://img.shields.io/badge/Licence-MIT-lightgrey?style=flat-square)](LICENSE)
 Pipeline for a Bank of England employer project: earnings call transcripts and
 reported key figures of UBS Group AG and JPMorgan Chase & Co. from 1Q23 to
 4Q24, turned into a PostgreSQL database and into CSV releases for analysis.
