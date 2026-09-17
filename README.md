@@ -9,6 +9,7 @@
 [![syntok](https://img.shields.io/badge/syntok-Sentence_Segmentation-8A4FFF?style=flat-square)](https://github.com/fnl/syntok)
 [![SEC EDGAR](https://img.shields.io/badge/SEC_EDGAR-Filings-1F4E79?style=flat-square)](https://www.sec.gov/edgar)
 [![Licence](https://img.shields.io/badge/Licence-MIT-lightgrey?style=flat-square)](LICENSE)
+
 Pipeline for a Bank of England employer project: earnings call transcripts and
 reported key figures of UBS Group AG and JPMorgan Chase & Co. from 1Q23 to
 4Q24, turned into a PostgreSQL database and into CSV releases for analysis.
