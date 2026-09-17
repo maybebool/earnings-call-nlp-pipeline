@@ -10,17 +10,6 @@ exports, so they sort chronologically. The label form (1Q23) is derived for
 display only; both banks use it in their own documents. `quarter` is the
 reporting period, not the call date (the UBS 4Q24 call took place in
 February 2025).
-
-Two axes were added for JPMorgan and default to the UBS behaviour, so the
-UBS rows and their raw file names are unchanged:
-
-    source     'edgar' for SEC filings, 'ir' for documents published only on
-               the company's investor relations site. JPMorgan does not file
-               its transcripts with the SEC, so they carry no accession
-               number and no CIK can be checked.
-    call_type  'earnings' for the quarterly call, 'event' for a call outside
-               the quarterly rhythm. Part of the identity of a filing because
-               a quarter can hold more than one call.
 """
 import re
 from dataclasses import dataclass
@@ -127,12 +116,10 @@ class Filing:
         return RAW_DIR / f"{'_'.join(parts)}{self.suffix}"
 
 
-# --------------------------------------------------------------------------
 # UBS Group AG, Form 6-K. The transcripts carry prepared remarks and Q&A in
 # one document; the quarterly reports carry the "Our key figures" table.
 # Not the UBS AG reports (CIK 1114446) and not the Pillar 3, capital
 # instruments or standalone filings of the same day.
-# --------------------------------------------------------------------------
 UBS_TRANSCRIPTS = [
     Filing(
         "UBS", "2023-Q1", date(2023, 4, 25),
@@ -211,12 +198,11 @@ UBS_REPORTS = [
     ),
 ]
 
-# --------------------------------------------------------------------------
+
 # JPMorgan Chase & Co. Transcripts are PDFs from the investor relations site:
 # as a domestic issuer JPMorgan does not file its calls with the SEC. The
 # file names follow no pattern, four variants appear over two years, so every
 # URL is verified individually rather than constructed.
-# --------------------------------------------------------------------------
 _JPM_IR = ("https://www.jpmorganchase.com/content/dam/jpmc/jpmorgan-chase-and-co"
            "/investor-relations/documents")
 
@@ -340,6 +326,9 @@ FILINGS = TRANSCRIPTS + REPORTS
 
 
 def _validate() -> None:
+    """
+    Validates the consistency and integrity of filings data in the `FILINGS` global collection.
+    """
     groups: dict[tuple[str, str, str], list[str]] = {}
     for f in FILINGS:
         if f.firm not in FIRMS:

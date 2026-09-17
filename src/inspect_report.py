@@ -17,6 +17,12 @@ ANCHORS = ("Our key figures", "Total revenues", "Cost / income", "Risk-weighted"
 
 
 def main() -> None:
+    """
+    Main entry point for processing financial data filings with optional geometry
+    and XBRL analysis. This function orchestrates multiple tasks including reading
+    filing data, extracting raw details, and analyzing specific dimensions like rows,
+    columns, and XBRL facts based on the arguments provided.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--quarter", required=True)
     ap.add_argument("--parser", default=None, help="inspect one parser in detail")
@@ -54,6 +60,16 @@ def main() -> None:
         coord = _re.compile(r"(left|top)\s*:\s*(-?[\d.]+)px")
 
         def geometry(node):
+            """
+            Calculate the geometry of a given node by determining its relative 'left'
+            and 'top' position based on its parent's styles.
+
+            This function iterates through the node's parent elements. It evaluates
+            the styles for each parent to extract the values for the 'left' and 'top'
+            position. As soon as both 'left' and 'top' are identified, it short-circuits
+            further processing. If no such values are found, it returns None for the
+            respective axis.
+            """
             box = {}
             for parent in node.parents:
                 for axis, value in coord.findall(parent.get("style", "") or ""):

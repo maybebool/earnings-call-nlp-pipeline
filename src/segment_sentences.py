@@ -1,8 +1,8 @@
-﻿"""Stage 3: split utterances into sentences.
+﻿"""Split utterances into sentences.
 
 Usage:
-    python src/segment_sentences.py                    # dry run over everything
-    python src/segment_sentences.py --bank JPM         # dry run for one bank
+    python src/segment_sentences.py # dry run over everything
+    python src/segment_sentences.py --bank JPM # dry run for one bank
     python src/segment_sentences.py --bank JPM --write # write that bank's sentences
 
 Uses syntok, which handles abbreviations, decimal numbers and currency
@@ -50,6 +50,12 @@ DELETE_QUERY = text(
 
 
 def get_engine():
+    """
+    Creates and returns a SQLAlchemy engine for connecting to a PostgreSQL database.
+
+    This function dynamically constructs the database URL from environment variables
+    and initializes a SQLAlchemy engine instance.
+    """
     url = (
         f"postgresql+psycopg://{os.environ['POSTGRES_USER']}:"
         f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
@@ -69,6 +75,10 @@ def split_sentences(body: str) -> list[str]:
 
 
 def report(utterances: list, rows: list[dict]) -> None:
+    """
+    Analyzes and prints statistical information about utterances and corresponding sentences, categorizing by
+    bank and examining sentence lengths.
+    """
     lengths = sorted(len(r["body"]) for r in rows)
     n = len(lengths)
     print(f"{len(utterances)} utterances -> {n} sentences")
@@ -92,6 +102,18 @@ def report(utterances: list, rows: list[dict]) -> None:
 
 
 def main() -> None:
+    """
+    Parses command-line arguments, processes utterances from a database, and writes
+    split sentences back to the database or outputs a dry-run summary.
+
+    This script connects to a database engine, retrieves utterances based on the
+    provided bank, and performs the following operations:
+    - Queries utterances for a specified bank or all banks if no bank is provided.
+    - Splits retrieved utterance text into sentences.
+    - Generates a report summarizing the processing results.
+    - Optionally writes the processed sentences to the database if the `--write`
+      flag is specified.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--bank", help=f"one bank: {', '.join(FIRMS)} (default: all)")
     ap.add_argument("--write", action="store_true",

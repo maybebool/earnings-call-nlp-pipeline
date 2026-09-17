@@ -1,4 +1,4 @@
-﻿"""Stage 1: fetch the configured filings and record them in `filings`.
+﻿""" Fetch the configured filings and record them in `filings`.
 
 Two sources. EDGAR documents are fetched with the SEC user agent and a pause
 between requests to stay inside the fair-access limit. Documents that a
@@ -10,10 +10,10 @@ given, and existing `filings` rows are never overwritten. A checksum that
 differs from the stored one is reported, not silently fixed.
 
 Usage:
-    python src/fetch_edgar.py --bank UBS                    # transcripts, all quarters
-    python src/fetch_edgar.py --bank JPM --doc-type report  # the key figures documents
-    python src/fetch_edgar.py --bank JPM --quarter 2Q23     # both 2Q23 calls
-    python src/fetch_edgar.py                               # every bank and transcript
+    python src/fetch_edgar.py --bank UBS # transcripts, all quarters
+    python src/fetch_edgar.py --bank JPM --doc-type report # the key figures documents
+    python src/fetch_edgar.py --bank JPM --quarter 2Q23 # both 2Q23 calls
+    python src/fetch_edgar.py # every bank and transcript
 """
 import argparse
 import hashlib
@@ -67,6 +67,12 @@ def load_raw(filing: Filing, refetch: bool) -> tuple[bytes, str]:
 
 
 def upsert_firm(conn, firm: dict) -> int:
+    """
+    Upserts a firm record into the `firms` table. If a record with the same ticker
+    already exists, it updates the existing record with the provided data. If no such
+    record exists, it inserts a new one. The method returns the ID of the newly updated
+    or inserted record.
+    """
     return conn.execute(
         text(
             """
@@ -141,6 +147,14 @@ def label_hits(filing: Filing, raw: bytes) -> str:
 
 
 def main() -> None:
+    """
+    Main entry point for processing financial filings.
+
+    This function parses command-line arguments to filter and fetch financial filings
+    based on various criteria such as bank, quarter, document type, call type,
+    and the need to refetch existing files. It processes the selected filings,
+    updates the associated database records, and outputs a summary for each filing.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bank", help=f"limit to one bank: {', '.join(FIRMS)}")
     parser.add_argument("--quarter", help="limit to one quarter, e.g. 2023-Q1 or 1Q23")

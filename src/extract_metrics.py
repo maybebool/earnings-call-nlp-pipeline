@@ -1,10 +1,10 @@
-﻿"""Stage 4: read the 'Our key figures' table of each quarterly report.
+﻿"""Read the 'Our key figures' table of each quarterly report.
 
 Usage:
-    python src/extract_metrics.py                      # dry run over all quarters
-    python src/extract_metrics.py --quarter 1Q23       # dry run, one quarter
-    python src/extract_metrics.py --matrix             # metric x quarter overview
-    python src/extract_metrics.py --write              # write to the metrics table
+    python src/extract_metrics.py # dry run over all quarters
+    python src/extract_metrics.py --quarter 1Q23 # dry run, one quarter
+    python src/extract_metrics.py --matrix # metric x quarter overview
+    python src/extract_metrics.py --write # write to the metrics table
 
 Only the reporting quarter's own figures are stored. In the 1Q23 report that
 is the first data column of the table; from 2Q23 on the reports are PDF
@@ -80,6 +80,7 @@ UNIT_BY_SUFFIX = (
 DEFAULT_UNIT = "USD m"  # the table header says 'USD m, except where indicated'
 
 NUMBER_RE = re.compile(r"^\(?-?[\d,]+(?:\.\d+)?\)?$")
+
 # The table we want contains all of these rows.
 REQUIRED_ROWS = ("total revenues", "cost / income ratio", "risk-weighted assets")
 
@@ -87,19 +88,41 @@ PARSERS = ("lxml", "html.parser", "lxml-xml")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 COORD_RE = re.compile(r"(left|top)\s*:\s*(-?[\d.]+)px")
-ROW_TOLERANCE_PX = 4.0     # nodes of one row share a top within this margin
-MIN_LABEL_GAP_PX = 150.0   # gap between the label block and the first column
-MIN_DATA_LEFT_PX = 300.0   # no data column starts left of this
-DATE_HEADER_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{2}$")  # '30.6.23' column header
-MAX_LABEL_LINES = 3        # a wrapped label spans at most this many lines
+# nodes of one row share a top within this margin
+ROW_TOLERANCE_PX = 4.0
+
+# gap between the label block and the first column
+MIN_LABEL_GAP_PX = 150.0
+
+# no data column starts left of this
+MIN_DATA_LEFT_PX = 300.0
+
+# '30.6.23' column header
+DATE_HEADER_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{2}$")
+
+# a wrapped label spans at most this many lines
+MAX_LABEL_LINES = 3
+
 KEY_FIGURES_ANCHOR = "Our key figures"
+
 # The key figures table is followed by this paragraph in every report.
 GEOMETRY_STOP = ("alternative performance measures", "an alternative performance")
+
 MAX_GEOMETRY_ROWS = 80
-MAX_HEADER_OFFSET_PX = 30.0  # how far an untagged value may sit from the header
+
+# how far an untagged value may sit from the header
+MAX_HEADER_OFFSET_PX = 30.0
 
 
 def get_engine():
+    """
+    Generates a SQL Alchemy engine instance for connecting to a PostgreSQL database.
+
+    The function constructs a database URL by using the required environment
+    variables for the database user, password, host, port, and database name. The
+    engine created provides a connection interface to the specified PostgreSQL
+    database instance.
+    """
     url = (
         f"postgresql+psycopg://{os.environ['POSTGRES_USER']}:"
         f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
@@ -113,11 +136,22 @@ def cell_texts(row) -> list[str]:
 
 
 def normalise_label(label: str) -> str:
+    """
+    Normalizes the given label by applying transformations to remove unwanted
+    footnote patterns, collapsing white spaces, trimming, and converting to
+    lowercase.
+    """
     label = FOOTNOTE_RE.sub("", " ".join(label.split()))
     return label.strip().lower()
 
 
 def parse_number(value: str) -> float | None:
+    """
+    Parses a string representation of a number and converts it into a floating-point value.
+    Handles various number formats, such as negative numbers indicated by parentheses
+    and certain Unicode minus signs. If the string does not match a valid number
+    format, returns None.
+    """
     value = value.replace("\u2212", "-").replace("\u2013", "-").strip()
     if NUMBER_RE.fullmatch(value) is None:
         return None
@@ -322,6 +356,17 @@ def resolve_label(label: str, pending: list[str], following: list[str]):
 
 
 def extract_ubs(filing: Filing) -> tuple[list[dict], dict]:
+    """
+    Extracts key metrics and metadata from the provided filing.
+
+    This function processes raw contents of a financial filing to extract relevant
+    key metrics and associated metadata. The extraction involves parsing tables
+    for key figures, resolving labels with adjacent lines for context, filtering
+    invalid or overly ambiguous labels, and normalizing the resulting metrics and
+    units. The returned metadata includes statistics about the extraction process,
+    such as the number of processed rows, unmapped labels, and information on
+    duplicate entries.
+    """
     meta = {"rows": 0, "unmapped": [], "table_found": False}
     rows, parser = key_figures_rows(filing.raw_path.read_bytes(), filing.quarter)
     if rows is None:
@@ -372,7 +417,14 @@ def extract_ubs(filing: Filing) -> tuple[list[dict], dict]:
     return metrics, meta
 
 def extract_jpm(filing: Filing) -> tuple[list[dict], dict]:
-    """The JPMorgan branch: ordinary HTML tables, see metrics_jpm."""
+    """
+    Extract key financial metrics and metadata from a filing instance.
+
+    This function parses raw data from the provided filing, extracts relevant
+    financial metrics, and organizes them into a structured format for downstream
+    processing. Additionally, it compiles metadata about the parsing process and
+    anomalies such as duplicate metrics.
+    """
     found, raw_meta = key_figures(filing.raw_path.read_bytes(), filing.label)
     metrics = [
         {**m, "firm": filing.firm, "quarter": filing.quarter,
@@ -397,7 +449,13 @@ def extract(filing: Filing) -> tuple[list[dict], dict]:
     return extract_ubs(filing)
 
 def report(filing: Filing, metrics: list[dict], meta: dict) -> None:
-    print(f"=== {filing.firm} {filing.quarter} ({filing.label})  {filing.raw_path}")
+    """
+    Generates a detailed report for financial filings, including metrics and metadata. The function
+    prints the firm name, quarter, and other relevant details based on the provided data. It also
+    handles scenarios where certain tables or data points are missing or unmapped, and gives a
+    summary of key figures.
+    """
+    print(f" {filing.firm} {filing.quarter} ({filing.label})  {filing.raw_path}")
     if not meta["table_found"]:
         print("KEY FIGURES TABLE NOT FOUND\n")
         return
@@ -418,6 +476,11 @@ def report(filing: Filing, metrics: list[dict], meta: dict) -> None:
 
 
 def matrix(all_metrics: list[dict], columns: list[tuple[str, str]]) -> None:
+    """
+    Generates and prints a formatted matrix displaying metrics, their basis, units, and corresponding
+    values for each column provided. The metrics are organized and formatted in a human-readable way
+    for review or analysis.
+    """
     names = sorted({(m["metric_name"], m["basis"], m["unit"]) for m in all_metrics})
     by_key = {(m["firm"], m["quarter"], m["metric_name"], m["basis"]): m["value"]
               for m in all_metrics}

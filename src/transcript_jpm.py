@@ -3,24 +3,6 @@
 Same contract as the UBS branch in parse_transcript: parse_pdf returns a list
 of utterance dicts and a meta dict of diagnostics.
 
-Layout of these documents, which is stable across the window:
-
-    <title lines>                       cover, page 1
-    MANAGEMENT DISCUSSION SECTION       section header
-    ...........................         a run of dots separates utterances
-    Operator: Good morning, ...         the operator speaks inline
-    ...........................
-    Jeremy Barnum                       speaker block: name, then role line
-    Chief Financial Officer, JPMorgan Chase & Co.
-    Thanks, and good morning, ...       body, wrapped over several lines
-    ...........................
-    QUESTION AND ANSWER SECTION
-    ...........................
-    John McDonald Q                     in the Q&A the name line carries the
-    Analyst, Autonomous Research        Q or A marker
-    ...
-    Disclaimer                          end of the transcript
-
 Page numbers sit on their own line at the foot of a page. When an utterance
 runs across a page break the speaker block is repeated at the top of the next
 page, so consecutive blocks of the same speaker are merged back into one.
@@ -41,6 +23,7 @@ SECTION_HEADERS = {
 # Name line, optionally carrying the Q or A marker of the Q&A section.
 # Covers 'Jamie Dimon', "Matt O'Connor Q", 'Ebrahim H. Poonawala Q'.
 _UPPER = "A-Z\u00c0-\u00dd"
+
 # Name line. The Q or A marker of the Q&A section is stripped beforehand,
 # because a single capital letter also satisfies the name pattern and would
 # otherwise be swallowed by it.
@@ -48,6 +31,7 @@ MARKER_RE = re.compile(r"\s+[QA]$")
 NAME_LINE_RE = re.compile(
     rf"^[{_UPPER}][\w.\u2019'-]*(?: [{_UPPER}][\w.\u2019'-]*){{1,3}}$"
 )
+
 # Role line, 'Analyst, Wolfe Research LLC' or
 # 'Chief Financial Officer, JPMorganChase'.
 ROLE_LINE_RE = re.compile(r"^(?P<title>[A-Z][^,]{2,60}?),\s*(?P<org>.{2,60})$")
@@ -126,6 +110,9 @@ def classify_speaker(name_line: str, role_line: str):
 
 
 def parse_pdf(path) -> tuple[list[dict], dict]:
+    """
+    Parses a PDF document into structured utterances and metadata.
+    """
     lines = page_lines(path)
     meta = {
         "cover_end": None,
@@ -144,6 +131,10 @@ def parse_pdf(path) -> tuple[list[dict], dict]:
     after_separator = True
 
     def flush() -> None:
+        """
+        Flushes the current utterance buffer into the `utterances` list or merges it
+        with the previous utterance if it matches specific criteria.
+        """
         nonlocal current
         if current is None or not current["parts"]:
             current = None

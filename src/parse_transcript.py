@@ -1,10 +1,10 @@
-﻿"""Stage 2: parse the transcript HTML into calls and utterances.
+﻿"""Parse the transcript HTML into calls and utterances.
 
 Usage:
-    python src/parse_transcript.py                         # summary dry run, all quarters
-    python src/parse_transcript.py --quarter 1Q23          # detailed dry run, one quarter
-    python src/parse_transcript.py --quarter 1Q23 --write  # write one quarter
-    python src/parse_transcript.py --write                 # write all quarters
+    python src/parse_transcript.py # summary dry run, all quarters
+    python src/parse_transcript.py --quarter 1Q23 # detailed dry run, one quarter
+    python src/parse_transcript.py --quarter 1Q23 --write # write one quarter
+    python src/parse_transcript.py --write # write all quarters
 
 Quarters, raw files and call dates come from filings_config. A quarter is
 only written if its Q&A header was found and it produced utterances.
@@ -58,28 +58,38 @@ ANALYST_ORG_FIXES = {
 # The cover page ends with the note pointing to ubs.com/investors. Layouts
 # without that note fall back to the first slide header.
 COVER_END_RE = re.compile(r"ubs\.com/investors", re.IGNORECASE)
+
 SLIDE_HEADER_RE = re.compile(r"^Slide \d+\s*[\u2013\u2014:-]")
+
 # The real header is 'Analyst Q&A (CEO and CFO)', possibly split after '(CEO'.
 # The cover sentence 'Analyst Q&A, which appears ...' must not match.
 QA_HEADER_RE = re.compile(r"^Analyst Q&A\s*(\(|$)")
+
 END_RE = re.compile(r"^(Cautionary statement|SIGNATURES$)", re.IGNORECASE)
 
 # Suffix after a speaker name, e.g. 'Sergio P. Ermotti – closing remarks'.
 SPEAKER_SUFFIX_RE = re.compile(r"\s+[\u2013\u2014-]\s+")
+
 # Analyst line: 'Name, Institution'; a semicolon occurs as separator too.
 ANALYST_LINE_RE = re.compile(r"^(?P<name>[^,;]{3,40}?)\s*[,;]\s*(?P<org>[^,;]{2,40})$")
+
 _UPPER = "A-Z\u00c0-\u00dd"
 NAME_RE = re.compile(rf"^[{_UPPER}][\w.\u2019'-]*(?: [{_UPPER}][\w.\u2019'-]*){{1,3}}$")
 ORG_RE = re.compile(rf"^[{_UPPER}][\w&.\u2019' -]*[\w)]$")
+
 # Short capitalized lines that look like a speaker but were not recognized.
 SUSPECT_RE = re.compile(rf"^[{_UPPER}][\w.\u2019'-]*(?:[ ,;]+[{_UPPER}&][\w.\u2019'&-]*){{1,5}}$")
+
 # A hyphenated word split over two line blocks comes back as 'pre -tax'.
 BROKEN_HYPHEN_RE = re.compile(r"(?<=[a-z]) -(?=[a-z])")
+
 # Editorial insertions kept in the text, e.g. '[edit: 14 million]',
 # '[indiscernible]', '[assets]'. The export README names the same expression.
 BRACKET_RE = re.compile(r"\[[^\]]*\]")
 SPEAKER_MAX_LEN = 60
-PAGE_STEP_MAX = 3  # a page number may skip up to two unnumbered pages
+
+# a page number may skip up to two unnumbered pages
+PAGE_STEP_MAX = 3
 
 
 def _key(s: str) -> str:
@@ -186,6 +196,7 @@ def match_management(block: str):
 
 
 def match_analyst(block: str):
+    """Matches and extracts information about an analyst's name and organization from a given text block."""
     m = ANALYST_LINE_RE.match(block)
     if m is None:
         return None
@@ -241,7 +252,15 @@ def classify(block: str, section: str, known: dict):
 
 
 def parse(blocks: list[str]) -> tuple[list[dict], dict]:
-    """Build the utterance list from the block sequence, plus diagnostics."""
+    """
+    Parses a list of text blocks into utterances and collects metadata.
+
+    Processes a sequence of textual blocks, identifying and structuring
+    speaker utterances while collecting relevant metadata for later analysis. The function
+    distinguishes sections of prepared remarks from Q&A sections, identifies speakers with
+    their roles, and captures important structural elements such as skipped pages or
+    suspected irregularities.
+    """
     known = collect_analysts(blocks)
     meta = {
         "cover_end": None,
@@ -328,6 +347,7 @@ def parse(blocks: list[str]) -> tuple[list[dict], dict]:
 
 
 def write_blocker(utterances: list[dict], meta: dict) -> str | None:
+    """Processes a list of utterances and metadata to determine if specific conditions are met."""
     if not utterances:
         return "no utterances"
     if not meta["qa_header"]:
@@ -336,6 +356,10 @@ def write_blocker(utterances: list[dict], meta: dict) -> str | None:
 
 
 def summary_line(filing: Filing, utterances: list[dict], meta: dict) -> None:
+    """
+    Generates and prints a summary line containing key statistics and information extracted
+    from the filing, utterances, and associated metadata.
+    """
     sections = Counter(u["section"] for u in utterances)
     roles = {r: {u["speaker_name"] for u in utterances if u["speaker_role"] == r}
              for r in ("management", "analyst")}
@@ -351,6 +375,11 @@ def summary_line(filing: Filing, utterances: list[dict], meta: dict) -> None:
 
 
 def dry_run_report(filing: Filing, utterances: list[dict], meta: dict) -> None:
+    """
+    Generates a detailed report based on the provided filing data, utterances, and metadata. The
+    report includes summaries, statistical breakdowns, and insights into the content structure
+    and speaker contributions.
+    """
     sections = Counter(u["section"] for u in utterances)
     print(f"{filing.firm} {filing.quarter} ({filing.label}) {filing.call_type}, "
           f"call {filing.call_date}, {filing.raw_path}")
@@ -367,21 +396,21 @@ def dry_run_report(filing: Filing, utterances: list[dict], meta: dict) -> None:
               f"{meta['merged_continuations']} page-break continuations merged")
     print(f"{len(utterances)} utterances (prepared {sections['prepared']}, qa {sections['qa']})\n")
 
-    print("--- speaker overview ---")
+    print("- speaker overview -")
     seen = Counter((u["section"], u["speaker_role"], u["speaker_name"], u["speaker_org"])
                    for u in utterances)
     for (section, role, name, org), n in seen.items():
         org_part = f" [{org}]" if org else ""
         print(f"{section:8s} {role:10s} {name}{org_part}  ({n})")
 
-    print("\n--- unrecognized speaker-like lines (check these) ---")
+    print("\n- unrecognized speaker-like lines (check these) -")
     if not meta["suspects"]:
         print("none")
     for (section, block), n in meta["suspects"].most_common(25):
         print(f"{section:8s} {n:3d}x  {block}")
 
     brackets = Counter(b for u in utterances for b in BRACKET_RE.findall(u["body"]))
-    print("\n--- bracket insertions ---")
+    print("\n- bracket insertions -")
     print(", ".join(f"{b} ({n})" for b, n in brackets.most_common()) or "none")
 
     def show(rows):
@@ -389,11 +418,11 @@ def dry_run_report(filing: Filing, utterances: list[dict], meta: dict) -> None:
             print(f"{u['seq']:3d} {u['section']:8s} {u['speaker_role']:10s} "
                   f"{u['speaker_name']:22s} {u['body'][:70]}")
 
-    print("\n--- first 8 utterances ---")
+    print("\n- first 8 utterances -")
     show(utterances[:8])
-    print("\n--- last 3 utterances ---")
+    print("\n- last 3 utterances -")
     show(utterances[-3:])
-    print("\n--- 3 longest utterances (merged speakers show up here) ---")
+    print("\n- 3 longest utterances (merged speakers show up here) -")
     for u in sorted(utterances, key=lambda u: len(u["body"]), reverse=True)[:3]:
         print(f"{u['seq']:3d} {len(u['body']):6,d} chars  {u['speaker_name']}: "
               f"...{u['body'][len(u['body']) // 2:][:90]}")
@@ -401,6 +430,11 @@ def dry_run_report(filing: Filing, utterances: list[dict], meta: dict) -> None:
 
 
 def write(filing: Filing, utterances: list[dict]) -> None:
+    """
+    Writes call and associated utterances data to the database. This function performs
+    several operations, including inserting or updating call details, replacing existing
+    utterances corresponding to the call, and adding new utterances for the call.
+    """
     engine = get_engine()
     with engine.begin() as conn:
         row = conn.execute(
@@ -460,6 +494,13 @@ def write(filing: Filing, utterances: list[dict]) -> None:
 
 
 def main() -> None:
+    """
+    This is the main function that handles the processing of financial transcripts based
+    on command-line arguments. It allows filtering of filings by bank, quarter, and call
+    type, processes the selected filings, and optionally writes the results to a database.
+    If the write option is not specified, the function performs a dry run and reports the
+    results without storing them.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--bank", help=f"one bank: {', '.join(FIRMS)} (default: all)")
     ap.add_argument("--quarter", help="one quarter, e.g. 1Q23 or 2023-Q1 (default: all)")

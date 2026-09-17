@@ -1,4 +1,4 @@
-﻿"""Stage 8: export a dated release of utterance- and sentence-level CSVs.
+﻿"""Export a dated release of utterance- and sentence-level CSVs.
 
 Layout of one release (the folder is copied as a whole to the shared Drive):
 
@@ -21,9 +21,9 @@ than the quarterly earnings call carries its call type. The earnings call
 names stay as they were.
 
 Usage:
-    python src/export_team_csv.py                        # release named after today
-    python src/export_team_csv.py --release 2026-09-12   # explicit release date
-    python src/export_team_csv.py --force                # rebuild an existing release
+    python src/export_team_csv.py # release named after today
+    python src/export_team_csv.py --release 2026-09-12 # explicit release date
+    python src/export_team_csv.py --force # rebuild an existing release
 """
 import argparse
 import csv
@@ -40,15 +40,19 @@ load_dotenv()
 
 EXPORT_ROOT = Path("exports")
 
-
 def get_engine():
+    """Generate a SQL Alchemy engine for a PostgreSQL database connection.
+
+    This function constructs the PostgreSQL database URL using environment
+    variables and returns an SQLAlchemy engine instance for interacting with
+    the database. The environment variables must be properly set for the
+    connection to be established."""
     url = (
         f"postgresql+psycopg://{os.environ['POSTGRES_USER']}:"
         f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
         f"{os.environ['POSTGRES_PORT']}/{os.environ['POSTGRES_DB']}"
     )
     return create_engine(url)
-
 
 UTTERANCE_QUERY = text(
     """
@@ -175,12 +179,20 @@ SENTENCE_COLUMNS = {
 
 
 def fetch(query) -> list[dict]:
+    """Fetches and returns query results as a list of dictionaries.
+
+    This function connects to the database engine, executes the provided query,
+    and maps the results into a list of dictionaries where each dictionary
+    represents a row from the query result."""
     engine = get_engine()
     with engine.connect() as conn:
         return [dict(r) for r in conn.execute(query).mappings().all()]
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
+    """Writes a list of dictionaries to a CSV file at the specified path. The function will
+    create the parent directories of the path if they do not exist. The keys of the first
+    dictionary in the rows list are used as the column headers for the CSV file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
@@ -203,12 +215,16 @@ def group_by_document(rows: list[dict]) -> dict[tuple[str, str, str], list[dict]
 
 
 def column_table(columns: dict[str, str]) -> str:
+    """Generate a markdown-style table string representation for a dictionary of columns and their meanings."""
     lines = ["| Column | Meaning |", "|---|---|"]
     lines += [f"| `{name}` | {meaning} |" for name, meaning in columns.items()]
     return "\n".join(lines)
 
 
 def build_readme(release: str, summary: list[dict]) -> str:
+    """Generate a Markdown-formatted README file summarizing the release data for bank earnings call
+    transcripts, including an overview, rules for analysis, source information, file descriptions,
+    columns present in the files, and caveats about data comparability."""
     contents = ["| Bank | Quarter | Type | Call date | Source reference | Statements "
                 "| Sentences | Metrics |",
                 "|---|---|---|---|---|---|---|---|"]
@@ -291,6 +307,10 @@ Files are UTF-8 encoded and comma-separated, text fields are quoted where needed
 
 
 def main() -> None:
+    """Is responsible for creating a release folder and exporting data to CSV
+    files. Handles the process of fetching data, grouping it, writing to appropriate
+    files, and generating a README for the release. Ensures proper management of the
+    existing release folder and prevents overwriting unless explicitly requested."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", default=date.today().isoformat(),
                     help="release folder name, default: today (YYYY-MM-DD)")

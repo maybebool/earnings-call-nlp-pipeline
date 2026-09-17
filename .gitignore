@@ -1,23 +1,14 @@
-﻿# Secrets & local configuration
+﻿# secrets
 .env
+.env.local
 
-# Data stays local (transcript copyright, team receives exports via Drive)
+# source documents and releases: third-party copyright, never in the repo
 data/
 exports/
+*:Zone.Identifier
 
-# Python
+# local tooling
+.idea/
 __pycache__/
 *.pyc
-*.egg-info/
-.venv/
-
-# Notebooks
 .ipynb_checkpoints/
-
-# IDE
-.idea/
-.vscode/
-
-# OS clutter
-.DS_Store
-Thumbs.db

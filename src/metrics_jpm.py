@@ -168,7 +168,14 @@ def header_offset(rows: list[list[str]], quarter_label: str) -> int | None:
 
 
 def key_figures(html: bytes, quarter_label: str) -> tuple[list[dict], dict]:
-    """Metrics of one supplement, plus diagnostics for the dry run."""
+    """
+    Process financial data from HTML content, extracting key metrics and metadata.
+
+    Parses financial table data extracted from HTML content, specifically identifying
+    and extracting key figures corresponding to a given quarter. It analyzes table structures,
+    follows logical rules to map relevant financial metrics, and maintains metadata about the
+    number of processed rows, unmapped headers, and overall parsing state.
+    """
     soup = BeautifulSoup(html, "lxml")
     tables = highlight_tables(soup)
     meta = {"tables": len(tables), "rows": 0, "unmapped": [], "table_found": bool(tables)}
