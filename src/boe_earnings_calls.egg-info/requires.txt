@@ -1,9 +1,0 @@
-requests
-python-dotenv
-sqlalchemy
-psycopg[binary]
-beautifulsoup4
-lxml
-syntok
-pdfplumber
-alembic

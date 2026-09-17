@@ -7,6 +7,10 @@ data/
 exports/
 *:Zone.Identifier
 
+*.egg-info/
+build/
+dist/
+
 # local tooling
 .idea/
 __pycache__/
